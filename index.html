@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a84ff">
+<link rel="manifest" href="manifest.json">
+<title>MedControl</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Arial,sans-serif;background:#f2f2f7;color:#111}
+*{box-sizing:border-box}body{margin:0;background:#f2f2f7}
+header{padding:calc(env(safe-area-inset-top) + 18px) 18px 14px;background:#fff;position:sticky;top:0;z-index:2;border-bottom:1px solid #ddd}
+h1{font-size:32px;margin:0 0 4px} .sub{color:#666}
+main{padding:16px 14px 40px;max-width:700px;margin:auto}
+.card{background:#fff;border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 1px 4px #00000012}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.name{font-size:20px;font-weight:700}.dose{color:#666;margin-top:3px}
+.next{font-size:28px;font-weight:700;margin:12px 0 2px}
+.badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#eaf3ff;color:#0879e8;font-weight:600;font-size:13px}
+button{border:0;border-radius:12px;padding:11px 15px;font-size:16px;font-weight:600;background:#0a84ff;color:#fff}
+button.secondary{background:#e5e5ea;color:#111}.taken{background:#34c759}
+.section{font-weight:700;font-size:14px;text-transform:uppercase;color:#666;margin:22px 4px 8px}
+.history{font-size:14px}.history div{padding:10px 0;border-bottom:1px solid #eee}
+small{color:#777}.warning{font-size:13px;color:#666;line-height:1.4}
+</style>
+</head>
+<body>
+<header><h1>MedControl</h1><div class="sub" id="date"></div></header>
+<main>
+<div class="section">Medicamentos</div>
+<div id="meds"></div>
+<div class="section">Historial</div>
+<div class="card history" id="history"></div>
+<div class="section">Recordatorios</div>
+<div class="card">
+  <div class="warning">Esta versión registra las tomas y muestra avisos en pantalla. En iPhone, las notificaciones web dependen de haber añadido la app a la pantalla de inicio y de los permisos de notificación de Safari/iOS.</div>
+</div>
+</main>
+<script>
+const key="medcontrol_v1";
+let state=JSON.parse(localStorage.getItem(key)||"null");
+if(!state){
+ const now=Date.now();
+ state={
+  meds:[
+   {id:"aug",name:"Augmentine",dose:"875/125 mg",hours:8,start:now},
+   {id:"ibu",name:"Ibuprofeno",dose:"600 mg",hours:8,start:now-3600000}
+  ],logs:[]
+ };
+ save();
+}
+function save(){localStorage.setItem(key,JSON.stringify(state))}
+function fmt(t){return new Date(t).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}
+function fmtFull(t){return new Date(t).toLocaleString("es-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}
+function currentScheduled(m){
+ const step=m.hours*3600000, n=Math.floor((Date.now()-m.start)/step);
+ return m.start+n*step;
+}
+function nextDose(m){
+ const step=m.hours*3600000, n=Math.floor((Date.now()-m.start)/step)+1;
+ return m.start+n*step;
+}
+function isTaken(m,t){return state.logs.some(x=>x.medId===m.id && Math.abs(x.scheduled-t)<120000 && x.taken)}
+function take(m){
+ const t=currentScheduled(m);
+ state.logs.push({medId:m.id,scheduled:t,taken:true,at:Date.now()});
+ save(); render();
+}
+function render(){
+ document.getElementById("date").textContent=new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
+ const box=document.getElementById("meds");box.innerHTML="";
+ state.meds.forEach(m=>{
+  const t=currentScheduled(m), taken=isTaken(m,t), n=nextDose(m);
+  const d=document.createElement("div");d.className="card";
+  d.innerHTML=`<div class="row"><div><div class="name">${m.name}</div><div class="dose">${m.dose} · cada ${m.hours} h</div></div><span class="badge">${taken?"TOMADA":"PENDIENTE"}</span></div>
+  <div class="next">${taken?fmt(n):fmt(t)}</div><small>${taken?"Próxima toma":"Toma actual"}</small>
+  <div style="margin-top:14px"><button class="${taken?"secondary":"taken"}" ${taken?"disabled":""} onclick="take(state.meds.find(x=>x.id==='${m.id}'))">${taken?"✓ Registrada":"✓ Marcar como tomada"}</button></div>`;
+  box.appendChild(d);
+ });
+ const h=document.getElementById("history");
+ const arr=state.logs.slice().sort((a,b)=>b.at-a.at).slice(0,20);
+ h.innerHTML=arr.length?arr.map(x=>{
+   const m=state.meds.find(y=>y.id===x.medId);
+   return `<div><b>${m?.name||"Medicamento"}</b> ${m?.dose||""}<br><small>Programada ${fmtFull(x.scheduled)} · tomada ${fmtFull(x.at)}</small></div>`;
+ }).join(""):"Todavía no hay tomas registradas.";
+}
+render();
+</script>
+</body>
+</html>

@@ -52,7 +52,7 @@ function step(m){return m.hours*3600000}
 function scheduledNow(m){return m.start+Math.floor((Date.now()-m.start)/step(m))*step(m)}
 function nextScheduled(m){return m.start+(Math.floor((Date.now()-m.start)/step(m))+1)*step(m)}
 function logFor(m,t){return state.logs.find(x=>x.medId===m.id&&Math.abs(x.scheduled-t)<120000)}
-function markScheduled(m,takenTime){if(logFor(m,takenTime))return;state.logs.push({id:crypto.randomUUID(),medId:m.id,scheduled:takenTime,taken:true,at:Date.now()});save();render()}
+function markScheduled(m,takenTime){if(logFor(m,takenTime))return;state.logs.push({id:String(Date.now())+"-"+Math.random().toString(36).slice(2),medId:m.id,scheduled:takenTime,taken:true,at:Date.now()});save();render()}
 function markNext(m){markScheduled(m,nextScheduled(m))}
 function markCurrent(m){markScheduled(m,scheduledNow(m))}
 function render(){
@@ -67,8 +67,8 @@ function render(){
       ? `<div class="status"><span class="dot"></span>TOMADA</div>`
       : `<div class="status"><span class="dot pendingDot"></span>${late?"ATRASADA":"PENDIENTE"}</div>`;
    let action=taken
-      ? `<button onclick="markScheduled(state.meds.find(x=>x.id==='${m.id}'),next)">✓ Marcar como tomada</button>`
-      : `<button onclick="markScheduled(state.meds.find(x=>x.id==='${m.id}'),current)">✓ Tomada ahora</button>`;
+      ? `<button onclick="window.medTake('${m.id}',next)">✓ Marcar como tomada</button>`
+      : `<button onclick="window.medTake('${m.id}',current)">✓ Tomada ahora</button>`;
    let htmlCard=`<div class="card">
      <div class="row"><div><div class="name">${m.name}</div><div class="dose">${m.dose} · cada ${m.hours} h</div></div>${status}</div>
      <div class="time">${fmt(current)}</div>
@@ -89,8 +89,17 @@ function render(){
    return `<div><b>${m?.name||"Medicamento"}</b> ${m?.dose||""} — ${x.taken?"🟢 tomada":"⏭️ omitida"}<br><small>Programada ${full(x.scheduled)} · registrada ${full(x.at)}</small></div>`
  }).join(""):"<div class='empty'>Todavía no hay tomas registradas.</div>";
 }
+window.medTake=function(id,t){
+  try{
+    const m=state.meds.find(x=>x.id===id);
+    if(!m) return;
+    markScheduled(m,t);
+  }catch(e){
+    alert("No se pudo registrar la toma. Recarga la página e inténtalo de nuevo.");
+  }
+}
 function openAdd(){fName.value="";fDose.value="";fHours.value=8;let d=new Date(Date.now()-new Date().getTimezoneOffset()*60000);fStart.value=d.toISOString().slice(0,16);dlg.showModal()}
-function saveMed(){let name=fName.value.trim(),dose=fDose.value.trim(),hours=Number(fHours.value);if(!name||!dose||!hours)return alert("Completa nombre, dosis e intervalo.");state.meds.push({id:crypto.randomUUID(),name,dose,hours,start:new Date(fStart.value).getTime()});save();dlg.close();render()}
+function saveMed(){let name=fName.value.trim(),dose=fDose.value.trim(),hours=Number(fHours.value);if(!name||!dose||!hours)return alert("Completa nombre, dosis e intervalo.");state.meds.push({id:String(Date.now())+"-"+Math.random().toString(36).slice(2),name,dose,hours,start:new Date(fStart.value).getTime()});save();dlg.close();render()}
 async function requestNotif(){if(!("Notification"in window))return alert("Este iPhone no permite notificaciones web en esta instalación.");let p=await Notification.requestPermission();alert(p==="granted"?"Avisos activados.":"No se concedió permiso.")}
 function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="medcontrol-backup.json";a.click()}
 render();setInterval(render,30000);

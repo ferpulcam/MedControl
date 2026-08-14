@@ -12,7 +12,7 @@ h1{font-size:32px;margin:0}.sub{color:#666}main{padding:12px 14px 44px;max-width
 .status{display:flex;align-items:center;gap:8px;font-weight:800}.dot{width:13px;height:13px;border-radius:50%;background:#34c759;display:inline-block}.pendingDot{background:#0a84ff}
 .time{font-size:29px;font-weight:800;margin-top:11px}.label{color:#777;font-size:14px;margin-top:2px}
 .nextbox{margin-top:14px;padding-top:13px;border-top:1px solid #eee}.nexttime{font-size:25px;font-weight:800}
-button{border:0;border-radius:13px;padding:11px 14px;font-size:16px;font-weight:700;background:#34c759;color:#fff}
+button{-webkit-appearance:none;appearance:none;touch-action:manipulation;cursor:pointer;border:0;border-radius:13px;padding:11px 14px;font-size:16px;font-weight:700;background:#34c759;color:#fff}
 button.secondary{background:#e5e5ea;color:#111}button.small{font-size:14px;padding:8px 10px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .notice,footer{font-size:13px;line-height:1.45;color:#666}input{font:inherit;width:100%;padding:12px;border:1px solid #d5d5da;border-radius:12px;background:#fff}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.full{grid-column:1/-1}
@@ -52,73 +52,69 @@ function step(m){return m.hours*3600000}
 function scheduledNow(m){return m.start+Math.floor((Date.now()-m.start)/step(m))*step(m)}
 function nextScheduled(m){return m.start+(Math.floor((Date.now()-m.start)/step(m))+1)*step(m)}
 function logFor(m,t){return state.logs.find(x=>x.medId===m.id&&Math.abs(x.scheduled-t)<120000)}
-window.medTake = function(id, t) {
-  try {
-    const m = state.meds.find(x => x.id === id);
-    if (!m) return;
-    markScheduled(m, Number(t));
-  } catch (e) {
-    alert("No se pudo registrar la toma. Recarga la página e inténtalo de nuevo.");
-  }
-};
 function markScheduled(m,takenTime){
-  if(!m || !Number.isFinite(Number(takenTime))) return;
-  if(logFor(m,Number(takenTime))) return;
+  if(!m || !Number.isFinite(Number(takenTime))) return false;
+  const scheduled=Number(takenTime);
+  if(logFor(m,scheduled)) return false;
   state.logs.push({
     id:String(Date.now())+"-"+Math.random().toString(36).slice(2),
     medId:m.id,
-    scheduled:Number(takenTime),
+    scheduled:scheduled,
     taken:true,
     at:Date.now()
   });
   save();
   render();
+  return true;
 }
-function markNext(m){markScheduled(m,nextScheduled(m))}
-function markCurrent(m){markScheduled(m,scheduledNow(m))}
 function render(){
  date.textContent=new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
  meds.innerHTML="";
  state.meds.forEach(m=>{
-   let current=scheduledNow(m), curLog=logFor(m,current);
-   let next=nextScheduled(m), nextLog=logFor(m,next);
-   let taken=!!(curLog&&curLog.taken);
-   let late=Date.now()>current+5*60000 && !taken;
-   let status=taken
+   const current=scheduledNow(m);
+   const curLog=logFor(m,current);
+   const taken=!!(curLog&&curLog.taken);
+   const next=nextScheduled(m);
+   const late=Date.now()>current+5*60000 && !taken;
+   const status=taken
       ? `<div class="status"><span class="dot"></span>TOMADA</div>`
       : `<div class="status"><span class="dot pendingDot"></span>${late?"ATRASADA":"PENDIENTE"}</div>`;
-   let action=taken
-      ? `<button type="button" onclick="window.medTake('${m.id}',${next})">✓ Marcar como tomada</button>`
-      : `<button type="button" onclick="window.medTake('${m.id}',${current})">✓ Tomada ahora</button>`;
-   let htmlCard=`<div class="card">
+   const action=taken
+      ? `<button type="button" class="take-btn" data-med-id="${m.id}" data-scheduled="${next}">✓ Marcar como tomada</button>`
+      : `<button type="button" class="take-btn" data-med-id="${m.id}" data-scheduled="${current}">✓ Tomada ahora</button>`;
+   const takenLabel=taken ? `Tomada · ${fmt(curLog.at)}` : "Toma programada";
+   const htmlCard=`<div class="card">
      <div class="row"><div><div class="name">${m.name}</div><div class="dose">${m.dose} · cada ${m.hours} h</div></div>${status}</div>
      <div class="time">${fmt(current)}</div>
-     <div class="label">${taken?"Tomada · hora programada":"Toma programada"}</div>
+     <div class="label">${takenLabel}</div>
      <div class="nextbox">
-       <div class="label">${taken?"Próxima toma":"Próxima toma"}</div>
+       <div class="label">Próxima toma</div>
        <div class="nexttime">${fmt(next)}</div>
-       <div class="actions" data-med-actions="${m.id}">${action}</div>
+       <div class="actions">${action}</div>
      </div>
    </div>`;
-   meds.innerHTML+=htmlCard;
+   meds.insertAdjacentHTML("beforeend",htmlCard);
  });
  upcoming.innerHTML=state.meds.map(m=>({m,t:nextScheduled(m)})).sort((a,b)=>a.t-b.t)
    .map(x=>`<div class="row" style="padding:8px 0"><div><b>${x.m.name}</b><div class="label">${x.m.dose}</div></div><b>${fmt(x.t)}</b></div>`).join("");
  let arr=state.logs.slice().sort((a,b)=>b.at-a.at).slice(0,30);
  history.innerHTML=arr.length?arr.map(x=>{
-   let m=state.meds.find(y=>y.id===x.medId);
+   const m=state.meds.find(y=>y.id===x.medId);
    return `<div><b>${m?.name||"Medicamento"}</b> ${m?.dose||""} — ${x.taken?"🟢 tomada":"⏭️ omitida"}<br><small>Programada ${full(x.scheduled)} · registrada ${full(x.at)}</small></div>`
  }).join(""):"<div class='empty'>Todavía no hay tomas registradas.</div>";
 }
-window.medTake=function(id,t){
-  try{
-    const m=state.meds.find(x=>x.id===id);
-    if(!m) return;
-    markScheduled(m,t);
-  }catch(e){
-    alert("No se pudo registrar la toma. Recarga la página e inténtalo de nuevo.");
-  }
-}
+// Usamos delegación de eventos en vez de onclick inline para que funcione de forma fiable en Safari/iPhone.
+meds.addEventListener("click", function(e){
+  const btn=e.target.closest("button.take-btn");
+  if(!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const m=state.meds.find(x=>x.id===btn.dataset.medId);
+  const t=Number(btn.dataset.scheduled);
+  if(!m || !Number.isFinite(t)) return;
+  markScheduled(m,t);
+});
+
 function openAdd(){fName.value="";fDose.value="";fHours.value=8;let d=new Date(Date.now()-new Date().getTimezoneOffset()*60000);fStart.value=d.toISOString().slice(0,16);dlg.showModal()}
 function saveMed(){let name=fName.value.trim(),dose=fDose.value.trim(),hours=Number(fHours.value);if(!name||!dose||!hours)return alert("Completa nombre, dosis e intervalo.");state.meds.push({id:String(Date.now())+"-"+Math.random().toString(36).slice(2),name,dose,hours,start:new Date(fStart.value).getTime()});save();dlg.close();render()}
 async function requestNotif(){if(!("Notification"in window))return alert("Este iPhone no permite notificaciones web en esta instalación.");let p=await Notification.requestPermission();alert(p==="granted"?"Avisos activados.":"No se concedió permiso.")}

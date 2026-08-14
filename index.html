@@ -52,7 +52,19 @@ function step(m){return m.hours*3600000}
 function scheduledNow(m){return m.start+Math.floor((Date.now()-m.start)/step(m))*step(m)}
 function nextScheduled(m){return m.start+(Math.floor((Date.now()-m.start)/step(m))+1)*step(m)}
 function logFor(m,t){return state.logs.find(x=>x.medId===m.id&&Math.abs(x.scheduled-t)<120000)}
-function markScheduled(m,takenTime){if(logFor(m,takenTime))return;state.logs.push({id:String(Date.now())+"-"+Math.random().toString(36).slice(2),medId:m.id,scheduled:takenTime,taken:true,at:Date.now()});save();render()}
+function markScheduled(m,takenTime){
+  if(!m || !Number.isFinite(Number(takenTime))) return;
+  if(logFor(m,Number(takenTime))) return;
+  state.logs.push({
+    id:String(Date.now())+"-"+Math.random().toString(36).slice(2),
+    medId:m.id,
+    scheduled:Number(takenTime),
+    taken:true,
+    at:Date.now()
+  });
+  save();
+  render();
+}
 function markNext(m){markScheduled(m,nextScheduled(m))}
 function markCurrent(m){markScheduled(m,scheduledNow(m))}
 function render(){
@@ -67,8 +79,8 @@ function render(){
       ? `<div class="status"><span class="dot"></span>TOMADA</div>`
       : `<div class="status"><span class="dot pendingDot"></span>${late?"ATRASADA":"PENDIENTE"}</div>`;
    let action=taken
-      ? `<button onclick="window.medTake('${m.id}',next)">✓ Marcar como tomada</button>`
-      : `<button onclick="window.medTake('${m.id}',current)">✓ Tomada ahora</button>`;
+      ? `<button type="button" onclick="window.medTake('${m.id}',${next})">✓ Marcar como tomada</button>`
+      : `<button type="button" onclick="window.medTake('${m.id}',${current})">✓ Tomada ahora</button>`;
    let htmlCard=`<div class="card">
      <div class="row"><div><div class="name">${m.name}</div><div class="dose">${m.dose} · cada ${m.hours} h</div></div>${status}</div>
      <div class="time">${fmt(current)}</div>
@@ -76,7 +88,7 @@ function render(){
      <div class="nextbox">
        <div class="label">${taken?"Próxima toma":"Próxima toma"}</div>
        <div class="nexttime">${fmt(next)}</div>
-       <div class="actions">${action}</div>
+       <div class="actions" data-med-actions="${m.id}">${action}</div>
      </div>
    </div>`;
    meds.innerHTML+=htmlCard;

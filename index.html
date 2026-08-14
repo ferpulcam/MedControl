@@ -52,6 +52,15 @@ function step(m){return m.hours*3600000}
 function scheduledNow(m){return m.start+Math.floor((Date.now()-m.start)/step(m))*step(m)}
 function nextScheduled(m){return m.start+(Math.floor((Date.now()-m.start)/step(m))+1)*step(m)}
 function logFor(m,t){return state.logs.find(x=>x.medId===m.id&&Math.abs(x.scheduled-t)<120000)}
+window.medTake = function(id, t) {
+  try {
+    const m = state.meds.find(x => x.id === id);
+    if (!m) return;
+    markScheduled(m, Number(t));
+  } catch (e) {
+    alert("No se pudo registrar la toma. Recarga la página e inténtalo de nuevo.");
+  }
+};
 function markScheduled(m,takenTime){
   if(!m || !Number.isFinite(Number(takenTime))) return;
   if(logFor(m,Number(takenTime))) return;

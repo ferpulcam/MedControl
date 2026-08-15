@@ -1,0 +1,142 @@
+<!doctype html><html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a84ff"><link rel="manifest" href="manifest.json"><title>MedControl</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Arial,sans-serif;background:#f2f2f7;color:#111}
+*{box-sizing:border-box}body{margin:0;background:#f2f2f7}
+header{padding:calc(env(safe-area-inset-top) + 16px) 18px 14px;background:#fff;position:sticky;top:0;z-index:5;border-bottom:1px solid #ddd}
+h1{font-size:32px;margin:0}.sub{color:#666}main{padding:12px 14px 44px;max-width:720px;margin:auto}
+.section{font-weight:800;font-size:13px;text-transform:uppercase;color:#666;margin:20px 4px 8px}
+.card{background:#fff;border-radius:20px;padding:16px;margin:10px 0;box-shadow:0 1px 5px #00000012}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}.name{font-size:20px;font-weight:750}.dose{color:#666;margin-top:3px}
+.status{display:flex;align-items:center;gap:8px;font-weight:800}.dot{width:13px;height:13px;border-radius:50%;background:#34c759;display:inline-block}.pendingDot{background:#0a84ff}
+.time{font-size:29px;font-weight:800;margin-top:11px}.label{color:#777;font-size:14px;margin-top:2px}
+.nextbox{margin-top:14px;padding-top:13px;border-top:1px solid #eee}.nexttime{font-size:25px;font-weight:800}.official{color:#777;font-size:13px;margin-top:3px}.adjusted{color:#0a84ff;font-size:13px;margin-top:3px}
+button{-webkit-appearance:none;appearance:none;touch-action:manipulation;cursor:pointer;border:0;border-radius:13px;padding:11px 14px;font-size:16px;font-weight:700;background:#34c759;color:#fff}
+button.secondary{background:#e5e5ea;color:#111}button.small{font-size:14px;padding:8px 10px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.notice,footer{font-size:13px;line-height:1.45;color:#666}input{font:inherit;width:100%;padding:12px;border:1px solid #d5d5da;border-radius:12px;background:#fff}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.full{grid-column:1/-1}
+dialog{border:0;border-radius:20px;padding:0;width:min(94vw,560px);box-shadow:0 20px 60px #0004}dialog::backdrop{background:#0006}.modal{padding:20px}
+.history div{padding:11px 0;border-bottom:1px solid #eee}.empty{text-align:center;color:#777;padding:14px}
+</style></head><body>
+<header><h1>MedControl</h1><div class="sub" id="date"></div></header><main>
+<div class="section">Medicamentos</div><div id="meds"></div>
+<div class="section">Próximas tomas</div><div class="card" id="upcoming"></div>
+<div class="section">Historial</div><div class="card history" id="history"></div>
+<div class="section">Herramientas</div><div class="card"><div class="actions">
+<button onclick="openAdd()">＋ Medicamento</button><button class="secondary" onclick="requestNotif()">🔔 Activar avisos</button><button class="secondary" onclick="exportData()">Exportar datos</button>
+</div><div class="notice" style="margin-top:12px">Los avisos web de iPhone requieren permisos y que la app esté añadida a la pantalla de inicio. Su entrega puede depender de iOS.</div></div>
+<footer><b>Importante:</b> MedControl es un registro y recordatorio y no modifica ni valida pautas médicas. Sigue siempre las instrucciones de tu médico o farmacéutico.</footer>
+</main>
+<dialog id="dlg"><div class="modal"><h2>Añadir medicamento</h2><div class="grid">
+<div class="full"><label>Nombre<input id="fName" placeholder="Ej. Paracetamol"></label></div>
+<div><label>Dosis<input id="fDose" placeholder="Ej. 500 mg"></label></div><div><label>Intervalo (horas)<input id="fHours" type="number" min="1" max="168" value="8"></label></div>
+<div class="full"><label>Primera toma<input id="fStart" type="datetime-local"></label></div></div>
+<div class="actions"><button onclick="saveMed()">Guardar</button><button class="secondary" onclick="dlg.close()">Cancelar</button></div></div></dialog>
+<script>
+const KEY="medcontrol_v2";let state=JSON.parse(localStorage.getItem(KEY)||"null");
+if(!state){
+  const d=new Date();
+  const aug=new Date(d.getFullYear(),d.getMonth(),d.getDate(),16,11,0,0).getTime();
+  const ibu=new Date(d.getFullYear(),d.getMonth(),d.getDate(),15,0,0,0).getTime();
+  state={meds:[
+    {id:"aug",name:"Augmentine",dose:"875/125 mg",hours:8,start:aug},
+    {id:"ibu",name:"Ibuprofeno",dose:"600 mg",hours:8,start:ibu}
+  ],logs:[]};
+  save();
+}
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function fmt(t){return new Date(t).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}
+function full(t){return new Date(t).toLocaleString("es-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}
+function step(m){return m.hours*3600000}
+function scheduledNow(m){return m.start+Math.floor((Date.now()-m.start)/step(m))*step(m)}
+function nextScheduled(m){return m.start+(Math.floor((Date.now()-m.start)/step(m))+1)*step(m)}
+function lastTaken(m){
+  return state.logs.filter(x=>x.medId===m.id&&x.taken).sort((a,b)=>b.at-a.at)[0]||null;
+}
+function nextDose(m){
+  const last=lastTaken(m);
+  return last ? last.at+step(m) : nextScheduled(m);
+}
+function officialForNext(m){
+  return nextScheduled(m);
+}
+function logFor(m,t){return state.logs.find(x=>x.medId===m.id&&Math.abs(x.scheduled-t)<120000)}
+function markScheduled(m,takenTime){
+  if(!m || !Number.isFinite(Number(takenTime))) return false;
+  const scheduled=Number(takenTime);
+  if(logFor(m,scheduled)) return false;
+  state.logs.push({
+    id:String(Date.now())+"-"+Math.random().toString(36).slice(2),
+    medId:m.id,
+    scheduled:scheduled,
+    taken:true,
+    at:Date.now()
+  });
+  save();
+  render();
+  return true;
+}
+function render(){
+ date.textContent=new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
+ meds.innerHTML="";
+ state.meds.forEach(m=>{
+   const current=scheduledNow(m);
+   const curLog=logFor(m,current);
+   const taken=!!(curLog&&curLog.taken);
+   const next=taken ? curLog.at+step(m) : nextDose(m);
+   const officialNext=nextScheduled(m);
+   const last=lastTaken(m);
+   const adjusted=!!last && Math.abs(next-officialNext)>60000;
+   const late=Date.now()>current+5*60000&&!taken;
+   const status=taken
+      ? `<div class="status"><span class="dot"></span>TOMADA</div>`
+      : `<div class="status"><span class="dot pendingDot"></span>${late?"ATRASADA":"PENDIENTE"}</div>`;
+   const action=taken
+      ? `<button type="button" class="take-btn" data-med-id="${m.id}" data-scheduled="${next}">✓ Marcar como tomada</button>`
+      : `<button type="button" class="take-btn" data-med-id="${m.id}" data-scheduled="${current}">✓ Tomada ahora</button>`;
+   const takenLabel=taken ? `Tomada · ${fmt(curLog.at)}` : "Toma programada";
+   const adjustment=adjusted
+      ? `<div class="adjusted">↳ Ajustada por la toma realizada a las ${fmt(last.at)}</div>`
+      : "";
+   const htmlCard=`<div class="card">
+     <div class="row"><div><div class="name">${m.name}</div><div class="dose">${m.dose} · cada ${m.hours} h</div></div>${status}</div>
+     <div class="time">${fmt(current)}</div>
+     <div class="label">${takenLabel}</div>
+     <div class="nextbox">
+       <div class="label">Próxima toma</div>
+       <div class="nexttime">${fmt(next)}</div>
+       <div class="official">Horario oficial: ${fmt(officialNext)}</div>
+       ${adjustment}
+       <div class="actions">${action}</div>
+     </div>
+   </div>`;
+   meds.insertAdjacentHTML("beforeend",htmlCard);
+ });
+ upcoming.innerHTML=state.meds.map(m=>({m,t:nextDose(m)})).sort((a,b)=>a.t-b.t)
+   .map(x=>`<div class="row" style="padding:8px 0"><div><b>${x.m.name}</b><div class="label">${x.m.dose}</div></div><div style="text-align:right"><b>${fmt(x.t)}</b><div class="label">Oficial: ${fmt(officialForNext(x.m))}</div></div></div>`).join("");
+ let arr=state.logs.slice().sort((a,b)=>b.at-a.at).slice(0,30);
+ history.innerHTML=arr.length?arr.map(x=>{
+   const m=state.meds.find(y=>y.id===x.medId);
+   return `<div><b>${m?.name||"Medicamento"}</b> ${m?.dose||""} — ${x.taken?"🟢 tomada":"⏭️ omitida"}<br><small>Programada ${full(x.scheduled)} · registrada ${full(x.at)}</small></div>`
+ }).join(""):"<div class='empty'>Todavía no hay tomas registradas.</div>";
+}
+
+// Usamos delegación de eventos en vez de onclick inline para que funcione de forma fiable en Safari/iPhone.
+meds.addEventListener("click", function(e){
+  const btn=e.target.closest("button.take-btn");
+  if(!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const m=state.meds.find(x=>x.id===btn.dataset.medId);
+  const t=Number(btn.dataset.scheduled);
+  if(!m || !Number.isFinite(t)) return;
+  markScheduled(m,t);
+});
+
+function openAdd(){fName.value="";fDose.value="";fHours.value=8;let d=new Date(Date.now()-new Date().getTimezoneOffset()*60000);fStart.value=d.toISOString().slice(0,16);dlg.showModal()}
+function saveMed(){let name=fName.value.trim(),dose=fDose.value.trim(),hours=Number(fHours.value);if(!name||!dose||!hours)return alert("Completa nombre, dosis e intervalo.");state.meds.push({id:String(Date.now())+"-"+Math.random().toString(36).slice(2),name,dose,hours,start:new Date(fStart.value).getTime()});save();dlg.close();render()}
+async function requestNotif(){if(!("Notification"in window))return alert("Este iPhone no permite notificaciones web en esta instalación.");let p=await Notification.requestPermission();alert(p==="granted"?"Avisos activados.":"No se concedió permiso.")}
+function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="medcontrol-backup.json";a.click()}
+render();setInterval(render,30000);
+</script></body></html>

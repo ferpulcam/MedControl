@@ -11,7 +11,7 @@ h1{font-size:32px;margin:0}.sub{color:#666}main{padding:12px 14px 44px;max-width
 .row{display:flex;justify-content:space-between;align-items:center;gap:12px}.name{font-size:20px;font-weight:750}.dose{color:#666;margin-top:3px}
 .status{display:flex;align-items:center;gap:8px;font-weight:800}.dot{width:13px;height:13px;border-radius:50%;background:#34c759;display:inline-block}.pendingDot{background:#0a84ff}
 .time{font-size:29px;font-weight:800;margin-top:11px}.label{color:#777;font-size:14px;margin-top:2px}
-.nextbox{margin-top:14px;padding-top:13px;border-top:1px solid #eee}.nexttime{font-size:25px;font-weight:800}
+.nextbox{margin-top:14px;padding-top:13px;border-top:1px solid #eee}.nexttime{font-size:25px;font-weight:800}.official{color:#777;font-size:13px;margin-top:3px}.adjusted{color:#0a84ff;font-size:13px;margin-top:3px}
 button{-webkit-appearance:none;appearance:none;touch-action:manipulation;cursor:pointer;border:0;border-radius:13px;padding:11px 14px;font-size:16px;font-weight:700;background:#34c759;color:#fff}
 button.secondary{background:#e5e5ea;color:#111}button.small{font-size:14px;padding:8px 10px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .notice,footer{font-size:13px;line-height:1.45;color:#666}input{font:inherit;width:100%;padding:12px;border:1px solid #d5d5da;border-radius:12px;background:#fff}
@@ -51,6 +51,16 @@ function full(t){return new Date(t).toLocaleString("es-ES",{day:"2-digit",month:
 function step(m){return m.hours*3600000}
 function scheduledNow(m){return m.start+Math.floor((Date.now()-m.start)/step(m))*step(m)}
 function nextScheduled(m){return m.start+(Math.floor((Date.now()-m.start)/step(m))+1)*step(m)}
+function lastTaken(m){
+  return state.logs.filter(x=>x.medId===m.id&&x.taken).sort((a,b)=>b.at-a.at)[0]||null;
+}
+function nextDose(m){
+  const last=lastTaken(m);
+  return last ? last.at+step(m) : nextScheduled(m);
+}
+function officialForNext(m){
+  return nextScheduled(m);
+}
 function logFor(m,t){return state.logs.find(x=>x.medId===m.id&&Math.abs(x.scheduled-t)<120000)}
 function markScheduled(m,takenTime){
   if(!m || !Number.isFinite(Number(takenTime))) return false;
@@ -74,8 +84,11 @@ function render(){
    const current=scheduledNow(m);
    const curLog=logFor(m,current);
    const taken=!!(curLog&&curLog.taken);
-   const next=nextScheduled(m);
-   const late=Date.now()>current+5*60000 && !taken;
+   const next=taken ? curLog.at+step(m) : nextDose(m);
+   const officialNext=nextScheduled(m);
+   const last=lastTaken(m);
+   const adjusted=!!last && Math.abs(next-officialNext)>60000;
+   const late=Date.now()>current+5*60000&&!taken;
    const status=taken
       ? `<div class="status"><span class="dot"></span>TOMADA</div>`
       : `<div class="status"><span class="dot pendingDot"></span>${late?"ATRASADA":"PENDIENTE"}</div>`;
@@ -83,6 +96,9 @@ function render(){
       ? `<button type="button" class="take-btn" data-med-id="${m.id}" data-scheduled="${next}">✓ Marcar como tomada</button>`
       : `<button type="button" class="take-btn" data-med-id="${m.id}" data-scheduled="${current}">✓ Tomada ahora</button>`;
    const takenLabel=taken ? `Tomada · ${fmt(curLog.at)}` : "Toma programada";
+   const adjustment=adjusted
+      ? `<div class="adjusted">↳ Ajustada por la toma realizada a las ${fmt(last.at)}</div>`
+      : "";
    const htmlCard=`<div class="card">
      <div class="row"><div><div class="name">${m.name}</div><div class="dose">${m.dose} · cada ${m.hours} h</div></div>${status}</div>
      <div class="time">${fmt(current)}</div>
@@ -90,19 +106,22 @@ function render(){
      <div class="nextbox">
        <div class="label">Próxima toma</div>
        <div class="nexttime">${fmt(next)}</div>
+       <div class="official">Horario oficial: ${fmt(officialNext)}</div>
+       ${adjustment}
        <div class="actions">${action}</div>
      </div>
    </div>`;
    meds.insertAdjacentHTML("beforeend",htmlCard);
  });
- upcoming.innerHTML=state.meds.map(m=>({m,t:nextScheduled(m)})).sort((a,b)=>a.t-b.t)
-   .map(x=>`<div class="row" style="padding:8px 0"><div><b>${x.m.name}</b><div class="label">${x.m.dose}</div></div><b>${fmt(x.t)}</b></div>`).join("");
+ upcoming.innerHTML=state.meds.map(m=>({m,t:nextDose(m)})).sort((a,b)=>a.t-b.t)
+   .map(x=>`<div class="row" style="padding:8px 0"><div><b>${x.m.name}</b><div class="label">${x.m.dose}</div></div><div style="text-align:right"><b>${fmt(x.t)}</b><div class="label">Oficial: ${fmt(officialForNext(x.m))}</div></div></div>`).join("");
  let arr=state.logs.slice().sort((a,b)=>b.at-a.at).slice(0,30);
  history.innerHTML=arr.length?arr.map(x=>{
    const m=state.meds.find(y=>y.id===x.medId);
    return `<div><b>${m?.name||"Medicamento"}</b> ${m?.dose||""} — ${x.taken?"🟢 tomada":"⏭️ omitida"}<br><small>Programada ${full(x.scheduled)} · registrada ${full(x.at)}</small></div>`
  }).join(""):"<div class='empty'>Todavía no hay tomas registradas.</div>";
 }
+
 // Usamos delegación de eventos en vez de onclick inline para que funcione de forma fiable en Safari/iPhone.
 meds.addEventListener("click", function(e){
   const btn=e.target.closest("button.take-btn");
